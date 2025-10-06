@@ -1,0 +1,408 @@
+// App.js
+import React, { useState, useEffect } from "react";
+import Sidebar from "./components/Sidebar";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import axios from "axios";
+
+// Fix Leaflet icons
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
+});
+
+// -------------------- Dashboard --------------------
+function DashboardContent({ attacks }) {
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>Dashboard</h2>
+      <div style={{ display: "flex", gap: "20px", marginBottom: "30px" }}>
+        <div style={cardStyle}>
+          <h3>Total Attacks</h3>
+          <p style={numberStyle}>{attacks.length}</p>
+        </div>
+        <div style={cardStyle}>
+          <h3>Honeypot Status</h3>
+          <p style={numberStyle}>✅ Active</p>
+        </div>
+        <div style={cardStyle}>
+          <h3>Live Attacks</h3>
+          <p style={numberStyle}>{attacks.length}</p>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 20 }}>
+        <div style={{ width: "70%", height: "400px" }}>
+          <MapContainer
+            center={[20, 0]}
+            zoom={2}
+            style={{ width: "100%", height: "100%" }}
+          >
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            {attacks.map(
+              (a, i) =>
+                a.geolocation && (
+                  <Marker
+                    key={i}
+                    position={[a.geolocation.lat, a.geolocation.lon]}
+                  >
+                    <Popup>
+                      {a.source_ip} - {a.honeypot_type}
+                    </Popup>
+                  </Marker>
+                )
+            )}
+          </MapContainer>
+        </div>
+
+        <div
+          style={{
+            width: "30%",
+            height: "400px",
+            overflowY: "auto",
+            border: "1px solid #ccc",
+            padding: 10,
+            borderRadius: 6,
+            backgroundColor: "#f5f5f5",
+          }}
+        >
+          <h3>Live Attacks</h3>
+          <ul style={{ listStyle: "none", padding: 0 }}>
+            {attacks.map((a, i) => (
+              <li key={i} style={{ marginBottom: "10px" }}>
+                <strong>IP:</strong> {a.source_ip} <br />
+                <strong>Time:</strong> {new Date(a.timestamp).toLocaleString()}{" "}
+                <br />
+                <strong>Location:</strong>{" "}
+                {a.geolocation
+                  ? ${a.geolocation.city}, ${a.geolocation.country}
+                  : "Unknown"}{" "}
+                <br />
+                <strong>Type:</strong> {a.honeypot_type}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// -------------------- Audit --------------------
+function Audit() {
+  const [companyId, setCompanyId] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [logs, setLogs] = useState([]);
+  const [verified, setVerified] = useState(false);
+
+  const [logForm, setLogForm] = useState({
+    timestamp: new Date().toISOString(),
+    attack_type: "",
+    target_device: "",
+    source_ip: "",
+    success: true,
+    payload: "",
+  });
+
+  // --- Register Company ---
+  const registerCompany = async () => {
+    try {
+      const res = await axios.post("http://127.0.0.1:8000/audit/register", {
+        company_id: companyId,
+      });
+      setSecretKey(res.data.secret_key);
+      alert(Registered! Secret Key: ${res.data.secret_key});
+      console.log("Secret Key:", res.data.secret_key);
+    } catch (err) {
+      console.error(err);
+      alert("Error registering company");
+    }
+  };
+
+  // --- Verify Secret Key ---
+  const verifySecretKey = async () => {
+    if (!secretKey) return alert("Enter a secret key first!");
+    try {
+      const res = await axios.get("http://127.0.0.1:8000/audit/logs", {
+        headers: { "secret-key": secretKey },
+      });
+      setVerified(true);
+      alert("Secret key is valid! You can now fetch or submit logs.");
+    } catch (err) {
+      setVerified(false);
+      alert("Invalid secret key. Please check!");
+    }
+  };
+
+  // --- Submit Log ---
+  const submitLog = async () => {
+    if (!verified) return alert("Verify secret key first!");
+    try {
+      await axios.post("http://127.0.0.1:8000/audit/log", logForm, {
+        headers: { "secret-key": secretKey },
+      });
+      alert("Log submitted!");
+      setLogForm({ ...logForm, timestamp: new Date().toISOString() });
+    } catch (err) {
+      console.error("Error submitting log:", err.response || err);
+      alert("Error submitting log");
+    }
+  };
+
+  // --- Fetch Logs ---
+  const fetchLogs = async () => {
+    if (!verified) return alert("Verify secret key first!");
+    try {
+      const res = await axios.get("http://127.0.0.1:8000/audit/logs", {
+        headers: { "secret-key": secretKey },
+      });
+      setLogs(res.data);
+    } catch (err) {
+      console.error("Error fetching logs:", err.response || err);
+      alert("Error fetching logs");
+    }
+  };
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>Audit</h2>
+
+      {/* Register Company */}
+      <div style={{ marginBottom: 20 }}>
+        <input
+          type="text"
+          placeholder="Company ID"
+          value={companyId}
+          onChange={(e) => setCompanyId(e.target.value)}
+        />
+        <button onClick={registerCompany}>Register</button>
+      </div>
+
+      {/* Secret Key Input + Verify */}
+      <div style={{ marginBottom: 20 }}>
+        <input
+          type="text"
+          placeholder="Enter Secret Key"
+          value={secretKey}
+          onChange={(e) => {
+            setSecretKey(e.target.value);
+            setVerified(false); // reset verification
+          }}
+        />
+        <button onClick={verifySecretKey} style={{ marginLeft: 10 }}>
+          Verify Key
+        </button>
+      </div>
+
+      {/* Submit Log Form */}
+      <div style={{ marginBottom: 20 }}>
+        <input
+          type="text"
+          placeholder="Attack Type"
+          value={logForm.attack_type}
+          onChange={(e) =>
+            setLogForm({ ...logForm, attack_type: e.target.value })
+          }
+        />
+        <input
+          type="text"
+          placeholder="Target Device"
+          value={logForm.target_device}
+          onChange={(e) =>
+            setLogForm({ ...logForm, target_device: e.target.value })
+          }
+        />
+        <input
+          type="text"
+          placeholder="Source IP"
+          value={logForm.source_ip}
+          onChange={(e) =>
+            setLogForm({ ...logForm, source_ip: e.target.value })
+          }
+        />
+        <input
+          type="text"
+          placeholder="Payload (optional)"
+          value={logForm.payload}
+          onChange={(e) =>
+            setLogForm({ ...logForm, payload: e.target.value })
+          }
+        />
+        <input
+          type="datetime-local"
+          value={logForm.timestamp.slice(0, 16)}
+          onChange={(e) =>
+            setLogForm({
+              ...logForm,
+              timestamp: new Date(e.target.value).toISOString(),
+            })
+          }
+        />
+        <select
+          value={logForm.success}
+          onChange={(e) =>
+            setLogForm({ ...logForm, success: e.target.value === "true" })
+          }
+        >
+          <option value="true">Success</option>
+          <option value="false">Failure</option>
+        </select>
+        <button onClick={submitLog} style={{ marginLeft: 10 }}>
+          Submit Log
+        </button>
+      </div>
+
+      {/* Fetch Logs */}
+      <div>
+        <button onClick={fetchLogs}>Fetch Logs</button>
+        <table border="1" cellPadding="6" style={{ marginTop: 10 }}>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Attack</th>
+              <th>Device</th>
+              <th>Source IP</th>
+              <th>Payload</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((l, i) => (
+              <tr key={i}>
+                <td>{l.timestamp}</td>
+                <td>{l.attack_type}</td>
+                <td>{l.target_device}</td>
+                <td>{l.source_ip}</td>
+                <td>{l.payload}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// -------------------- Playbook --------------------
+function Playbook() {
+  const [rules, setRules] = useState([]);
+  const [form, setForm] = useState({
+    company_id: "",
+    attack_type: "",
+    response_action: "",
+  });
+  const [msg, setMsg] = useState("");
+
+  const fetchRules = async () => {
+    try {
+      const res = await axios.get("http://127.0.0.1:8000/playbook/all");
+      setRules(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const uploadRule = async () => {
+    if (!form.company_id || !form.attack_type || !form.response_action)
+      return;
+    try {
+      await axios.post("http://127.0.0.1:8000/playbook/upload", form);
+      setMsg("Rule uploaded successfully!");
+      setForm({ company_id: "", attack_type: "", response_action: "" });
+      fetchRules();
+    } catch (err) {
+      console.error(err);
+      setMsg("Error uploading rule");
+    }
+  };
+
+  useEffect(() => {
+    fetchRules();
+  }, []);
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>Playbook</h2>
+      <div style={{ marginBottom: 10 }}>
+        <input
+          type="text"
+          placeholder="Company ID"
+          value={form.company_id}
+          onChange={(e) => setForm({ ...form, company_id: e.target.value })}
+        />
+        <input
+          type="text"
+          placeholder="Attack Type"
+          value={form.attack_type}
+          onChange={(e) => setForm({ ...form, attack_type: e.target.value })}
+        />
+        <input
+          type="text"
+          placeholder="Response Action"
+          value={form.response_action}
+          onChange={(e) =>
+            setForm({ ...form, response_action: e.target.value })
+          }
+        />
+        <button onClick={uploadRule} style={{ marginLeft: 10 }}>
+          Upload Rule
+        </button>
+        {msg && <p>{msg}</p>}
+      </div>
+
+      <ul>
+        {rules.map((r, i) => (
+          <li key={i}>
+            <strong>{r.company_id}</strong> – {r.attack_type} →{" "}
+            {r.response_action}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// -------------------- Styles --------------------
+const cardStyle = {
+  flex: 1,
+  padding: "20px",
+  borderRadius: "8px",
+  backgroundColor: "#f0f4f8",
+  textAlign: "center",
+  boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
+};
+const numberStyle = { fontSize: "24px", fontWeight: "bold" };
+
+// -------------------- Main App --------------------
+export default function App() {
+  const [attacks, setAttacks] = useState([]);
+  const [activePage, setActivePage] = useState("Dashboard");
+
+  useEffect(() => {
+    const fetchAttacks = async () => {
+      try {
+        const res = await axios.get("http://127.0.0.1:8000/api/attacks");
+        setAttacks(res.data);
+      } catch (err) {
+        console.error("Error fetching attacks:", err);
+      }
+    };
+    fetchAttacks();
+    const interval = setInterval(fetchAttacks, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <Sidebar setActivePage={setActivePage} activePage={activePage} />
+      <div style={{ flex: 1, overflowY: "auto", background: "#f9f9f9" }}>
+        {activePage === "Dashboard" && <DashboardContent attacks={attacks} />}
+        {activePage === "Audit" && <Audit />}
+        {activePage === "Playbook" && <Playbook />}
+      </div>
+    </div>
+  );
+}
